@@ -11,6 +11,15 @@
 #include <Windows.h>
 
 #include "resource.h"
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "esUtil.h"
+//#include <GLES3/gl3.h>
+//#include <EGL/egl.h>
+//#include <EGL/eglext.h>
+
 
 #if _MSC_VER >= 1200
  // Disable compilation warnings.
@@ -25,6 +34,8 @@
 #include "lvgl/examples/lv_examples.h"
 #include "lv_demos/lv_demo.h"
 #include "lv_drivers/win32drv/win32drv.h"
+
+#define GWL_USERDATA GWLP_USERDATA
 
 #if _MSC_VER >= 1200
 // Restore compilation warnings.
@@ -143,8 +154,216 @@ static void win_btn_event_callback2(lv_event_t* event)
     }
 }
 
+
+
+typedef struct
+{
+    // Handle to a program object
+    GLuint programObject;
+
+} UserData;
+
+
+
+
+//////////////////////////////////////////////////////////////////
+//
+//  Private Functions
+//
+//
+
+///
+//  ESWindowProc()
+//
+//      Main window procedure
+//
+LRESULT WINAPI ESWindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    LRESULT  lRet = 1;
+
+    switch (uMsg)
+    {
+    case WM_CREATE:
+        break;
+
+    case WM_PAINT:
+    {
+        ESContext* esContext = (ESContext*)(LONG_PTR)GetWindowLongPtr(hWnd, GWL_USERDATA);
+
+        if (esContext && esContext->drawFunc)
+        {
+            esContext->drawFunc(esContext);
+            eglSwapBuffers(esContext->eglDisplay, esContext->eglSurface);
+        }
+
+        if (esContext)
+        {
+            ValidateRect(esContext->eglNativeWindow, NULL);
+        }
+    }
+    break;
+
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        break;
+
+    case WM_CHAR:
+    {
+        POINT      point;
+        ESContext* esContext = (ESContext*)(LONG_PTR)GetWindowLongPtr(hWnd, GWL_USERDATA);
+
+        GetCursorPos(&point);
+
+        if (esContext && esContext->keyFunc)
+            esContext->keyFunc(esContext, (unsigned char)wParam,
+                (int)point.x, (int)point.y);
+    }
+    break;
+
+    default:
+        lRet = DefWindowProc(hWnd, uMsg, wParam, lParam);
+        break;
+    }
+
+    return lRet;
+}
+
+//////////////////////////////////////////////////////////////////
+//
+//  Public Functions
+//
+//
+
+///
+//  WinCreate()
+//
+//      Create Win32 instance and window
+//
+GLboolean WinCreate(ESContext* esContext, const char* title)
+{
+    WNDCLASS wndclass = { 0 };
+    DWORD    wStyle = 0;
+    RECT     windowRect;
+    HINSTANCE hInstance = GetModuleHandle(NULL);
+
+
+    wndclass.style = CS_OWNDC;
+    wndclass.lpfnWndProc = (WNDPROC)ESWindowProc;
+    wndclass.hInstance = hInstance;
+    wndclass.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+    //wndclass.lpszClassName = "opengles3.0";
+    wndclass.lpszClassName = TEXT("opengles3.0");
+
+    if (!RegisterClass(&wndclass))
+    {
+        return FALSE;
+    }
+
+    wStyle = WS_VISIBLE | WS_POPUP | WS_BORDER | WS_SYSMENU | WS_CAPTION;
+
+    // Adjust the window rectangle so that the client area has
+    // the correct number of pixels
+    windowRect.left = 0;
+    windowRect.top = 0;
+    windowRect.right = esContext->width;
+    windowRect.bottom = esContext->height;
+
+    AdjustWindowRect(&windowRect, wStyle, FALSE);
+
+
+
+    esContext->eglNativeWindow = CreateWindow(
+        TEXT("opengles3.0"),
+        TEXT("title------------"),
+        wStyle,
+        0,
+        0,
+        windowRect.right - windowRect.left,
+        windowRect.bottom - windowRect.top,
+        NULL,
+        NULL,
+        hInstance,
+        NULL);
+
+    // Set the ESContext* to the GWL_USERDATA so that it is available to the
+    // ESWindowProc
+#ifdef _WIN64
+   //In LLP64 LONG is stll 32bit.
+    SetWindowLongPtr(esContext->eglNativeWindow, GWL_USERDATA, (LONGLONG)(LONG_PTR)esContext);
+#else
+    SetWindowLongPtr(esContext->eglNativeWindow, GWL_USERDATA, (LONG)(LONG_PTR)esContext);
+#endif
+
+
+    if (esContext->eglNativeWindow == NULL)
+    {
+        return GL_FALSE;
+    }
+
+    ShowWindow(esContext->eglNativeWindow, TRUE);
+
+    return GL_TRUE;
+}
+
+///
+//  WinLoop()
+//
+//      Start main windows loop
+//
+void WinLoop(ESContext* esContext)
+{
+    MSG msg = { 0 };
+    int done = 0;
+    DWORD lastTime = GetTickCount();
+
+    while (!done)
+    {
+        int gotMsg = (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE) != 0);
+        DWORD curTime = GetTickCount();
+        float deltaTime = (float)(curTime - lastTime) / 1000.0f;
+        lastTime = curTime;
+
+        if (gotMsg)
+        {
+            if (msg.message == WM_QUIT)
+            {
+                done = 1;
+            }
+            else
+            {
+                TranslateMessage(&msg);
+                DispatchMessage(&msg);
+            }
+        }
+        else
+        {
+            SendMessage(esContext->eglNativeWindow, WM_PAINT, 0, 0);
+        }
+
+        // Call update function if registered
+        if (esContext->updateFunc != NULL)
+        {
+            esContext->updateFunc(esContext, deltaTime);
+        }
+    }
+}
+
+///
+//  Global extern.  The application must declare this function
+//  that runs the application.
+//
+extern int esMain(ESContext* esContext);
+
+
+
+
+
+
+
 int main()
 {
+
+#if 0
     lv_init();
 
     if (!lv_win32_init(
@@ -376,6 +595,36 @@ int main()
     // Task handler loop
     // ----------------------------------
 
+
+
+
+float dashesArr[] = { 7.0f, 32.0f, 7.0f, 32.0f, -1 };
+
+float* dashes = dashesArr;
+
+int i, j, ndashes, idash0 = 0;
+float allDashLen = 0, dashOffset;
+
+for (ndashes = 0; dashes[ndashes] >= 0; ++ndashes) {}
+// Figure out dash offset.
+for (j = 0; j < ndashes; j++)
+    allDashLen += dashes[j];
+if (ndashes & 1)
+allDashLen *= 2.0f;
+// Find location inside pattern
+dashOffset = fmodf(0.0f, allDashLen);
+if (dashOffset < 0.0f)
+    dashOffset += allDashLen;
+while (dashOffset > dashes[idash0]) {
+    dashOffset -= dashes[idash0];
+    idash0 = (idash0 + 1) % ndashes;
+}
+
+
+
+
+
+
     while (!lv_win32_quit_signal)
     {
         //lv_task_handler();
@@ -385,5 +634,236 @@ int main()
         Sleep(16);
     }
 
+#endif
+
+    ESContext esContext;
+
+    memset(&esContext, 0, sizeof(ESContext));
+
+    if (esMain(&esContext) != GL_TRUE)
+    {
+        return 1;
+    }
+
+    WinLoop(&esContext);
+
+    if (esContext.shutdownFunc != NULL)
+    {
+        esContext.shutdownFunc(&esContext);
+    }
+
+    if (esContext.userData != NULL)
+    {
+        free(esContext.userData);
+    }
+
+
+
     return 0;
+}
+
+
+///
+// Create a shader object, load the shader source, and
+// compile the shader.
+//
+GLuint LoadShader(GLenum type, const char* shaderSrc)
+{
+    GLuint shader;
+    GLint compiled;
+
+    // Create the shader object
+    shader = glCreateShader(type);
+
+    if (shader == 0)
+    {
+        return 0;
+    }
+
+    // Load the shader source
+    glShaderSource(shader, 1, &shaderSrc, NULL);
+
+    // Compile the shader
+    glCompileShader(shader);
+
+    // Check the compile status
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+
+    if (!compiled)
+    {
+        GLint infoLen = 0;
+
+        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &infoLen);
+
+        if (infoLen > 1)
+        {
+            char* infoLog = (char*)malloc(sizeof(char) * infoLen);
+
+            glGetShaderInfoLog(shader, infoLen, NULL, infoLog);
+            esLogMessage("Error compiling shader:\n%s\n", infoLog);
+
+            free(infoLog);
+        }
+
+        glDeleteShader(shader);
+        return 0;
+    }
+
+    return shader;
+
+}
+
+///
+// Initialize the shader and program object
+//
+int Init(ESContext* esContext)
+{
+    //UserData* userData = (UserData*)esContext->userData;
+    //char vShaderStr[] =
+    //    "#version 300 es                          \n"
+    //    "layout(location = 0) in vec4 vPosition;  \n"
+    //    "void main()                              \n"
+    //    "{                                        \n"
+    //    "   gl_Position = vPosition;              \n"
+    //    "}                                        \n";
+
+    //char fShaderStr[] =
+    //    "#version 300 es                              \n"
+    //    "precision mediump float;                     \n"
+    //    "out vec4 fragColor;                          \n"
+    //    "void main()                                  \n"
+    //    "{                                            \n"
+    //    "   fragColor = vec4 ( 1.0, 0.0, 0.0, 1.0 );  \n"
+    //    "}                                            \n";
+
+    //GLuint vertexShader;
+    //GLuint fragmentShader;
+    //GLuint programObject;
+    //GLint linked;
+
+    //// Load the vertex/fragment shaders
+    //vertexShader = LoadShader(GL_VERTEX_SHADER, vShaderStr);
+    //fragmentShader = LoadShader(GL_FRAGMENT_SHADER, fShaderStr);
+
+    //// Create the program object
+    //programObject = glCreateProgram();
+
+    //if (programObject == 0)
+    //{
+    //    return 0;
+    //}
+
+    //glAttachShader(programObject, vertexShader);
+    //glAttachShader(programObject, fragmentShader);
+
+    //// Link the program
+    //glLinkProgram(programObject);
+
+    //// Check the link status
+    //glGetProgramiv(programObject, GL_LINK_STATUS, &linked);
+
+    //if (!linked)
+    //{
+    //    GLint infoLen = 0;
+
+    //    glGetProgramiv(programObject, GL_INFO_LOG_LENGTH, &infoLen);
+
+    //    if (infoLen > 1)
+    //    {
+    //        char* infoLog = (char*)malloc(sizeof(char) * infoLen);
+
+    //        glGetProgramInfoLog(programObject, infoLen, NULL, infoLog);
+    //        esLogMessage("Error linking program:\n%s\n", infoLog);
+
+    //        free(infoLog);
+    //    }
+
+    //    glDeleteProgram(programObject);
+    //    return FALSE;
+    //}
+
+    //// Store the program object
+    //userData->programObject = programObject;
+
+    //glClearColor(1.0f, 1.0f, 1.0f, 0.0f);
+
+
+
+
+    return TRUE;
+}
+
+///
+// Draw a triangle using the shader pair created in Init()
+//
+void Draw(ESContext* esContext)
+{
+    UserData* userData = (UserData*)esContext->userData;
+    GLfloat vVertices[] = { 0.0f,  0.5f, 0.0f,
+                             -0.5f, -0.5f, 0.0f,
+                             0.5f, -0.5f, 0.0f
+    };
+
+
+    //// Set the viewport
+    //glViewport(0, 0, esContext->width, esContext->height);
+
+    // Clear the color buffer
+    //glClear(GL_COLOR_BUFFER_BIT);
+
+    //// Use the program object
+    //glUseProgram(userData->programObject);
+
+    //// Load the vertex data
+    //glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, vVertices);
+    //glEnableVertexAttribArray(0);
+
+    //glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_CULL_FACE);
+    glDisable(GL_DEPTH_TEST);
+
+
+
+    //eglSwapBuffers(esContext->eglDisplay, esContext->eglSurface);
+
+}
+
+void Shutdown(ESContext* esContext)
+{
+    UserData* userData = (UserData*)esContext->userData;
+
+    glDeleteProgram(userData->programObject);
+}
+
+
+int esMain(ESContext* esContext)
+{
+    esContext->userData = malloc(sizeof(UserData));
+
+    esCreateWindow(esContext, "Hello Triangle", 640, 480, ES_WINDOW_RGB);
+
+    if (!Init(esContext))
+    {
+        return GL_FALSE;
+    }
+
+    // Set the viewport
+    glViewport(0, 0, esContext->width, esContext->height);
+    glEnable(GL_DEPTH_TEST);
+
+    glClearDepthf(1.0f);
+    glClearColor(1.0f, 0.0f, 0.5f, 1.0f);
+
+
+
+
+    esRegisterShutdownFunc(esContext, Shutdown);
+    esRegisterDrawFunc(esContext, Draw);
+
+    return GL_TRUE;
 }

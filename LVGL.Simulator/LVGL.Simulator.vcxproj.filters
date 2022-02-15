@@ -6,6 +6,13 @@
   <ItemGroup>
     <ClInclude Include="lv_conf.h" />
     <ClInclude Include="lv_drv_conf.h" />
+    <ClInclude Include="esUtil.h" />
+    <ClInclude Include="nanovg\nanovg.h" />
+    <ClInclude Include="nanovg\nanovg_gl.h" />
+    <ClInclude Include="nanovg\nanovg_gl_utils.h" />
+    <ClInclude Include="nanovg\stb_image.h" />
+    <ClInclude Include="nanovg\stb_image_write.h" />
+    <ClInclude Include="nanovg\stb_truetype.h" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="lv_demo_conf.h" />
@@ -19,6 +26,8 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="LVGL.Simulator.cpp" />
+    <ClCompile Include="esUtil.c" />
+    <ClCompile Include="nanovg\nanovg.c" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="LVGL.Simulator.rc" />
